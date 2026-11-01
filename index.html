@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no viewport-fit=cover">
+<title>Slideshow</title>
+<link href="https://fonts.googleapis.com/css2?family=Architects+Daughter&family=Neucha&display=swap" rel="stylesheet">
+<style>
+:root { 
+  --accent: #b08d47; 
+  --font-ui: 'Architects Daughter', sans-serif;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+body{ font-family: var(--font-ui); background:#000; color:#fff; min-height:100vh; overflow:hidden; }
+button{cursor:pointer;border:none;outline:none;}
+
+#slideshow { position: fixed; inset: 0; background: #000; z-index: 100; }
+.slide-layer { position: absolute; inset: 0; opacity: 1; }
+.slide-layer canvas { width: 100%; height: 100%; display: block; }
+
+#layerA { z-index: 2; pointer-events: none; }
+#animatedLayer { z-index: 1; display: none; overflow: hidden; }
+#animatedBg {
+  position: absolute;
+  width: 110vw;
+  height: 110vh;
+  left: -5vw;
+  top: -5vh;
+  object-fit: cover;
+  filter: blur(25px) brightness(0.4);
+}
+#animatedImg { 
+  position: absolute; 
+  transform-origin: top left; 
+  box-shadow: 0 0 50px rgba(0,0,0,0.8);
+}
+
+.slide-nav { position: absolute; inset: 0; z-index: 5; display: flex; }
+.slide-nav-zone { flex: 1; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+
+#startOverlay {
+  position: fixed; inset: 0; background: #000; z-index: 200;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 2rem;
+}
+#startOverlay h1 { font-family: 'Neucha', cursive; color: var(--accent); font-size: 2.5rem; margin-bottom: 2rem; }
+
+#fileUploader { margin-bottom: 1rem; background: rgba(255,255,255,0.1); color: #fff; padding: 0.75rem; border-radius: 6px; font-family: var(--font-ui); }
+#statusText { margin-bottom: 1.5rem; font-size: 1rem; color: #aaa; }
+#generateBtn {
+  background: var(--accent); color: #000; font-weight: bold; font-family: var(--font-ui);
+  font-size: 1.1rem; padding: 0.75rem 2rem; border-radius: 30px;
+}
+#generateBtn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+#menuBtn {
+  position: fixed;
+  top: 1rem;
+  right: 1rem;
+  z-index: 150;
+  background: rgba(0, 0, 0, 0.4);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 50%;
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 0.3;
+  transition: opacity 0.3s, background 0.3s;
+}
+#menuBtn:hover {
+  opacity: 1;
+  background: rgba(0, 0, 0, 0.8);
+}
+</style>
+</head>
+<body>
+
+<button id="menuBtn" title="Settings / Menu">
+  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="12" cy="12" r="3"></circle>
+    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+  </svg>
+</button>
+
+<div id="startOverlay">
+  <h1>Slideshow</h1>
+  <input type="file" id="fileUploader" accept=".zip,.png,.jpg,.jpeg,.webp" multiple>
+  <div id="statusText">0 images loaded</div>
+  <button id="generateBtn" disabled>Start Slideshow</button>
+</div>
+
+<div id="slideshow">
+  <div class="slide-layer" id="animatedLayer">
+    <img id="animatedBg">
+    <img id="animatedImg">
+  </div>
+  <div class="slide-layer" id="layerA"><canvas></canvas></div>
+  
+  <div class="slide-nav">
+    <div class="slide-nav-zone" id="navCenter" title="Pause/Play"></div>
+    <div class="slide-nav-zone" id="navNext" title="Next Slide"></div>
+  </div>
+</div>
+
+<script>
+const SLIDE_DURATION = 4.9; 
+const PARALLAX_INTENSITY = 2;
+const NUM_LAYERS = 10;
+const BREATHE_INTENSITY = 25;
+
+const DB_NAME = 'SlideshowDB';
+const STORE_NAME = 'slides';
+const DB_VERSION = 1;
+
+let uploadedImages = [];
+
+const state = {
+  currentSlide: 0, isPlaying: true,
+  breathTime: 0, lastRenderTime: 0, pauseTime: 0, isLoadingNext: false,
+  nextSlideData: null
+};
+
+const dom = {
+  canvas: document.querySelector('#layerA canvas'),
+  animatedLayer: document.getElementById('animatedLayer'),
+  animatedBg: document.getElementById('animatedBg'),
+  animatedImg: document.getElementById('animatedImg'),
+  navCenter: document.getElementById('navCenter'), navNext: document.getElementById('navNext'),
+  startOverlay: document.getElementById('startOverlay'), generateBtn: document.getElementById('generateBtn'),
+  fileUploader: document.getElementById('fileUploader'), statusText: document.getElementById('statusText'),
+  menuBtn: document.getElementById('menuBtn')
+};
+
+const engine = { ctx: dom.canvas.getContext('2d'), isFlat: false, layers: [], underplate: null, active: false, drawW: 0, drawH: 0, startTime: 0, anchorX: 0, anchorY: 0, sizeZoom: 1.0, baseMaxZoom: 1.15, isZoomOut: false, camPath: null };
+
+function openDB() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, DB_VERSION);
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => resolve(request.result);
+    request.upgradeneeded = (event) => {
+      const db = event.target.result;
+      if (!db.objectStoreNames.contains(STORE_NAME)) {
+        db.createObjectStore(STORE_NAME, { keyPath: 'id', autoIncrement: true });
+      }
+    };
+  });
+}
+
+async function saveToDB(fileEntries) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(STORE_NAME, 'readwrite');
+    const store = transaction.objectStore(STORE_NAME);
+    store.clear(); // Replace existing set
+    fileEntries.forEach(entry => store.add(entry));
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error);
+  });
+}
+
+async function loadFromDB() {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(STORE_NAME, 'readonly');
+    const store = transaction.objectStore(STORE_NAME);
+    const request = store.getAll();
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+function resizeCanvas() { dom.canvas.width = window.innerWidth; dom.canvas.height = window.innerHeight; }
+window.addEventListener('resize', resizeCanvas);
+
+dom.fileUploader.addEventListener('change', async (event) => {
+  const files = event.target.files;
+  if (!files.length) return;
+  dom.generateBtn.textContent = 'Processing...';
+  dom.generateBtn.disabled = true;
+
+  let collectedFiles = [];
+
+  for (let file of files) {
+    if (file.name.endsWith('.zip')) {
+      try {
+        const zip = await JSZip.loadAsync(file);
+        const imgNames = Object.keys(zip.files).filter(name => !zip.files[name].dir && !name.includes('__MACOSX') && !name.includes('._') && name.match(/\.(png|jpg|jpeg|webp)$/i));
+        for (let name of imgNames) {
+          const blob = await zip.files[name].async('blob');
+          collectedFiles.push({ name: name, blob: blob });
+        }
+      } catch (err) { console.error(err); }
+    } else if (file.name.match(/\.(png|jpg|jpeg|webp)$/i)) {
+      collectedFiles.push({ name: file.name, blob: file });
+    }
+  }
+
+  let fileMap = {};
+
+  for (let file of collectedFiles) {
+    const nameNoExt = file.name.replace(/\.[^/.]+$/, '');
+    const isDepth = /_depth/i.test(nameNoExt);
+    const coreName = nameNoExt.replace(/_depth/i, '').replace(/[_-\s]+$/, '').trim().toLowerCase();
+
+    if (!fileMap[coreName]) {
+      fileMap[coreName] = { base: null, depth: null };
+    }
+
+    if (isDepth) {
+      fileMap[coreName].depth = file;
+    } else {
+      fileMap[coreName].base = file;
+    }
+  }
+
+  let dbEntries = [];
+  uploadedImages = [];
+  for (let coreName in fileMap) {
+    const entry = fileMap[coreName];
+    dbEntries.push({
+      baseBlob: entry.base ? entry.base.blob : null,
+      depthBlob: entry.depth ? entry.depth.blob : null,
+      baseName: entry.base ? entry.base.name : (entry.depth ? entry.depth.name : '')
+    });
+
+    const baseUrl = entry.base ? URL.createObjectURL(entry.base.blob) : null;
+    let depthUrl = entry.depth ? URL.createObjectURL(entry.depth.blob) : null;
+    uploadedImages.push([baseUrl, depthUrl]);
+  }
+
+  try {
+    await saveToDB(dbEntries);
+  } catch (err) {
+    console.error('Error saving to DB:', err);
+  }
+
+  dom.statusText.textContent = `${uploadedImages.length} slides loaded`;
+  if (uploadedImages.length > 0) {
+    dom.generateBtn.disabled = false;
+    dom.generateBtn.textContent = 'Start Slideshow';
+  }
+});
+
+function loadImage(src) {
+  return new Promise((res, rej) => {
+    if (!src) return res(null);
+    let img = new Image();
+    img.onload = () => res(img);
+    img.onerror = rej;
+    img.src = src;
+  });
+}
+
+function createScratchCanvas(w, h) {
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  return { canvas: c, ctx: c.getContext('2d', { willReadFrequently: true }) };
+}
+
+async function buildSlideData(baseSrc, depthSrc) {
+  await new Promise(res => requestAnimationFrame(res)); 
+  const w = window.innerWidth; const h = window.innerHeight;
+  const baseImg = await loadImage(baseSrc);
+  const imgW = baseImg.width; const imgH = baseImg.height;
+
+  let fitScale = Math.min(w / imgW, h / imgH);
+  let scale = fitScale * 1.05; 
+  const drawW = imgW * scale; const drawH = imgH * scale;
+
+  const anchorX = w * (0.1 + 0.8 * Math.random()); const anchorY = h * (0.1 + 0.8 * Math.random());
+  const isZoomOut = Math.random() < 0.25;
+
+  const camPath = function(t) {
+    let easeT = Math.sin(Math.min(t, 1.0) * (Math.PI / 2));
+    let zoom = isZoomOut ? engine.baseMaxZoom - (easeT * (engine.baseMaxZoom - 1.0)) : 1.0 + (easeT * (engine.baseMaxZoom - 1.0));
+    let moveX = -(anchorX - (window.innerWidth / 2)) * (zoom - 1.0); 
+    let moveY = -(anchorY - (window.innerHeight / 2)) * (zoom - 1.0);
+    return { x: moveX, y: moveY, z: zoom };
+  };
+
+  if (!depthSrc) {
+    return { isFlat: true, baseSrc, layers: [], drawW, drawH, anchorX, anchorY, isZoomOut, camPath };
+  }
+
+  const depthImg = await loadImage(depthSrc);
+
+  const scaleDown = 0.1;
+  const smallW = w * scaleDown; const smallH = h * scaleDown;
+  const smallCanvas = document.createElement('canvas'); smallCanvas.width = smallW; smallCanvas.height = smallH;
+  const smallCtx = smallCanvas.getContext('2d');
+  const bgScale = Math.max(smallW / imgW, smallH / imgH); 
+  
+  smallCtx.filter = 'blur(2px) brightness(0.95)';
+  smallCtx.drawImage(baseImg, (smallW - imgW * bgScale) / 2, (smallH - imgH * bgScale) / 2, imgW * bgScale, imgH * bgScale);
+  const bgCanvas = document.createElement('canvas'); bgCanvas.width = w; bgCanvas.height = h;
+  bgCanvas.getContext('2d').drawImage(smallCanvas, 0, 0, w, h);
+  const underplate = bgCanvas;
+
+  const dCanvas = document.createElement('canvas'); dCanvas.width = imgW; dCanvas.height = imgH;
+  const dCtx = dCanvas.getContext('2d', { willReadFrequently: true }); dCtx.drawImage(depthImg, 0, 0, imgW, imgH);
+  const dData = dCtx.getImageData(0, 0, imgW, imgH).data;
+
+  await new Promise(res => requestAnimationFrame(res)); 
+  const bCanvas = document.createElement('canvas'); bCanvas.width = imgW; bCanvas.height = imgH;
+  const bCtx = bCanvas.getContext('2d', { willReadFrequently: true }); bCtx.drawImage(baseImg, 0, 0, imgW, imgH);
+  const bData = bCtx.getImageData(0, 0, imgW, imgH).data;
+
+  const layerCanvases = [];
+  const layerDataArrays = Array.from({ length: NUM_LAYERS }, () => new Uint8ClampedArray(imgW * imgH * 4));
+
+  for (let idx = 0; idx < dData.length; idx += 4) {
+    const depthVal = dData[idx] / 255.0; 
+    const floatLayer = depthVal * (NUM_LAYERS - 1);
+    const layer1 = Math.floor(floatLayer);
+    const layer2 = Math.min(Math.floor(floatLayer + 0.66), NUM_LAYERS - 1);
+    
+    layerDataArrays[layer1][idx] = bData[idx]; layerDataArrays[layer1][idx+1] = bData[idx+1]; 
+    layerDataArrays[layer1][idx+2] = bData[idx+2]; layerDataArrays[layer1][idx+3] = Math.floor(255 * Math.min(1, 7 * (1 - (floatLayer - layer1))));
+
+    if (layer1 !== layer2) {
+      layerDataArrays[layer2][idx] = bData[idx]; layerDataArrays[layer2][idx+1] = bData[idx+1]; 
+      layerDataArrays[layer2][idx+2] = bData[idx+2]; layerDataArrays[layer2][idx+3] = Math.floor(255 * Math.min(1, 7 * (floatLayer + 0.66 - layer2)));
+    }
+  }
+
+  await new Promise(res => requestAnimationFrame(res)); 
+  const slideLayers = [];
+  for (let i = 0; i < NUM_LAYERS; i++) {
+    const lc = document.createElement('canvas'); lc.width = imgW; lc.height = imgH;
+    lc.getContext('2d').putImageData(new ImageData(layerDataArrays[i], imgW, imgH), 0, 0);
+    layerCanvases.push(lc);
+    slideLayers.push({ canvas: lc, depth: i / (NUM_LAYERS - 1) });
+  }
+
+  const scratchCrisp = createScratchCanvas(imgW, imgH);
+  const scratchSmear = createScratchCanvas(imgW, imgH);
+
+  for (let L = NUM_LAYERS-1; L >=0; L--) {
+    await new Promise(res => requestAnimationFrame(res)); 
+
+    scratchCrisp.ctx.clearRect(0, 0, imgW, imgH);
+    scratchCrisp.ctx.filter = 'blur(2px)';
+    scratchCrisp.ctx.drawImage(layerCanvases[L], 0, 0);
+    scratchCrisp.ctx.filter = 'none'; 
+    scratchCrisp.ctx.globalCompositeOperation = 'source-in';
+    scratchCrisp.ctx.drawImage(baseImg, 0, 0);
+    scratchCrisp.ctx.globalCompositeOperation = 'source-over';
+
+    await new Promise(res => requestAnimationFrame(res)); 
+
+    const scratchTiny = createScratchCanvas(Math.ceil(imgW * 0.05), Math.ceil(imgH * 0.05));
+    scratchTiny.ctx.drawImage(scratchCrisp.canvas, 0, 0, scratchTiny.canvas.width, scratchTiny.canvas.height);
+    scratchTiny.ctx.filter = 'blur(1px)';
+    for(let k=0; k<4; k++) scratchTiny.ctx.drawImage(scratchTiny.canvas, 0, 0);
+    scratchTiny.ctx.filter = 'none';
+
+    scratchSmear.ctx.clearRect(0, 0, imgW, imgH);
+    scratchSmear.ctx.drawImage(scratchTiny.canvas, 0, 0, imgW, imgH);
+
+    const scratchHigherMask = createScratchCanvas(imgW, imgH);
+    for (let j = L + 1; j < NUM_LAYERS; j++) scratchHigherMask.ctx.drawImage(layerCanvases[j], 0, 0);
+    
+    scratchSmear.ctx.globalCompositeOperation = 'destination-in';
+    scratchSmear.ctx.drawImage(scratchHigherMask.canvas, 0, 0);
+    scratchSmear.ctx.globalCompositeOperation = 'source-over';
+
+    const finalLayerCanvas = document.createElement('canvas');
+    finalLayerCanvas.width = imgW; finalLayerCanvas.height = imgH;
+    const finalCtx = finalLayerCanvas.getContext('2d');
+    finalCtx.drawImage(scratchSmear.canvas, 0, 0);
+    finalCtx.drawImage(scratchCrisp.canvas, 0, 0);
+
+    slideLayers[L].canvas = finalLayerCanvas;
+  }
+
+  return { isFlat: false, underplate, layers: slideLayers, drawW, drawH, anchorX, anchorY, isZoomOut, camPath };
+}
+
+function renderLoop() {
+  let now = performance.now();
+  let dt = now - (state.lastRenderTime || now);
+  state.lastRenderTime = now;
+  state.breathTime += dt;
+  let camTime = state.isPlaying ? now : (state.pauseTime || now);
+
+  if (!engine.active || (!engine.isFlat && engine.layers.length === 0)) {
+    engine.ctx.fillStyle = 'black';
+    engine.ctx.fillRect(0, 0, window.innerWidth, window.innerHeight);
+    requestAnimationFrame(renderLoop);
+    return;
+  }
+
+  let elapsedSeconds = (camTime - engine.startTime) / 1000;
+  let elapsedSlide = elapsedSeconds / SLIDE_DURATION;
+  
+  if (elapsedSlide >= 1.0 && !state.isLoadingNext) {
+    state.isLoadingNext = true; advanceSlide();
+  }
+
+  let cam = engine.camPath(elapsedSlide);
+  let cx = window.innerWidth / 2; let cy = window.innerHeight / 2;
+
+  let breatheOffset = BREATHE_INTENSITY * Math.sin(state.breathTime / 1500);
+  let breatheOffsetX = BREATHE_INTENSITY * Math.cos(state.breathTime / 2000);
+
+  engine.ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+
+  if (engine.isFlat) {
+    dom.animatedLayer.style.display = 'block';
+    
+    if (dom.animatedImg.src !== engine.baseSrc) {
+      dom.animatedImg.src = engine.baseSrc;
+      dom.animatedBg.src = engine.baseSrc;
+    }
+
+    let layerZoom = cam.z;
+    let rawW = engine.drawW * layerZoom; let rawH = engine.drawH * layerZoom;
+    let pX = cam.x + breatheOffsetX;
+    let pY = cam.y + breatheOffset;
+    
+    let drawX = cx + pX - rawW / 2;
+    let drawY = cy + pY - rawH / 2;
+
+    dom.animatedImg.style.width = `${rawW}px`;
+    dom.animatedImg.style.height = `${rawH}px`;
+    dom.animatedImg.style.transform = `translate(${drawX}px, ${drawY}px)`;
+  } else {
+    dom.animatedLayer.style.display = 'none';
+    if (engine.underplate) engine.ctx.drawImage(engine.underplate, 0, 0, window.innerWidth, window.innerHeight);
+
+    engine.layers.forEach(layer => {
+      const layerDepthFactor = layer.depth * PARALLAX_INTENSITY * 0.5;
+      let layerZoom = (cam.z + (cam.z - 1.0) * layerDepthFactor);
+      let rawW = engine.drawW * layerZoom; let rawH = engine.drawH * layerZoom;
+      
+      let pX = cam.x * (1.0 + layerDepthFactor) + (breatheOffsetX * layerDepthFactor);
+      let pY = cam.y * (1.0 + layerDepthFactor) + (breatheOffset * layerDepthFactor);
+      
+      let drawX = cx + pX + (0.66 * breatheOffsetX);
+      let drawY = cy + pY + (0.66 * breatheOffset);
+      
+      engine.ctx.drawImage(layer.canvas, drawX - rawW / 2, drawY - rawH / 2, rawW, rawH);
+    });
+  }
+
+  let fadeOpacity = 0;
+  let timeRemaining = SLIDE_DURATION - elapsedSeconds;
+  if (elapsedSeconds < 0.4) fadeOpacity = 1.0 - (elapsedSeconds / 0.4);
+  if (timeRemaining < 0.1) fadeOpacity = 1.0 - Math.max(0, timeRemaining / 0.1);
+
+  if (fadeOpacity > 0) {
+    engine.ctx.globalAlpha = Math.max(0, Math.min(1, fadeOpacity));
+    engine.ctx.fillStyle = '#000';
+    engine.ctx.fillRect(0, 0, window.innerWidth, window.innerHeight);
+    engine.ctx.globalAlpha = 1.0; 
+  }
+
+  requestAnimationFrame(renderLoop);
+}
+
+async function showSlide(index) {
+  if (uploadedImages.length === 0) return;
+  state.currentSlide = index;
+
+  let imgIndex = index % uploadedImages.length;
+
+  if (!state.nextSlideData) {
+    const slide = uploadedImages[imgIndex];
+    state.nextSlideData = await buildSlideData(slide[0], slide[1]);
+  }
+
+  engine.active = false;
+  Object.assign(engine, { isFlat: false, layers: [] });
+  Object.assign(engine, state.nextSlideData);
+  
+  engine.ctx.canvas.width = window.innerWidth;
+  engine.ctx.canvas.height = window.innerHeight;
+  engine.startTime = performance.now();
+  engine.active = true;
+  state.isLoadingNext = false;
+  state.nextSlideData = null;
+
+  let nextImgIndex = (imgIndex + 1) % uploadedImages.length;
+  const nextSlideFiles = uploadedImages[nextImgIndex];
+  buildSlideData(nextSlideFiles[0], nextSlideFiles[1]).then(data => {
+    state.nextSlideData = data;
+  });
+}
+
+function advanceSlide() {
+  if (uploadedImages.length === 0) return;
+  state.isPlaying = true; 
+  showSlide(state.currentSlide + 1);
+}
+
+function togglePlayPause() {
+  state.isPlaying = !state.isPlaying;
+  if (state.isPlaying) {
+    engine.startTime += (performance.now() - state.pauseTime);
+    document.documentElement.requestFullscreen().catch(() => {});
+  } else {
+    state.pauseTime = performance.now();
+  }
+}
+
+dom.navNext.addEventListener('click', advanceSlide);
+dom.navCenter.addEventListener('click', togglePlayPause);
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') advanceSlide();
+  else if (e.key === ' ') { e.preventDefault(); togglePlayPause(); }
+});
+
+dom.generateBtn.addEventListener('click', () => {
+  document.documentElement.requestFullscreen().catch(() => {});
+  dom.startOverlay.style.display = 'none';
+  state.lastRenderTime = performance.now();
+  resizeCanvas();
+  requestAnimationFrame(renderLoop);
+  showSlide(0);
+});
+
+dom.menuBtn.addEventListener('click', (e) => {
+  e.stopPropagation();
+  state.isPlaying = false;
+  engine.active = false;
+  dom.statusText.textContent = `${uploadedImages.length} images loaded`;
+  dom.generateBtn.disabled = uploadedImages.length === 0;
+  dom.generateBtn.textContent = 'Start Slideshow';
+  dom.startOverlay.style.display = 'flex';
+});
+
+// Auto-start on load if images exist in storage
+window.addEventListener('DOMContentLoaded', async () => {
+  try {
+    const records = await loadFromDB();
+    if (records && records.length > 0) {
+      uploadedImages = records.map(record => {
+        const baseUrl = record.baseBlob ? URL.createObjectURL(record.baseBlob) : null;
+        const depthUrl = record.depthBlob ? URL.createObjectURL(record.depthBlob) : null;
+        return [baseUrl, depthUrl];
+      });
+
+      if (uploadedImages.length > 0) {
+        dom.startOverlay.style.display = 'none';
+        resizeCanvas();
+        state.lastRenderTime = performance.now();
+        requestAnimationFrame(renderLoop);
+        showSlide(0);
+        return;
+      }
+    }
+  } catch (err) {
+    console.error('Error loading stored images:', err);
+  }
+  dom.statusText.textContent = '0 images loaded';
+  dom.generateBtn.disabled = true;
+});
+</script>
+</body>
+</html>
