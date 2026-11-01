@@ -108,19 +108,14 @@ button{cursor:pointer;border:none;outline:none;}
 
 <script>
 const SLIDE_DURATION = 4.9; 
-const PARALLAX_INTENSITY = 2;
-const NUM_LAYERS = 10;
-const BREATHE_INTENSITY = 25;
-
-const DB_NAME = 'SlideshowDB';
-const STORE_NAME = 'slides';
-const DB_VERSION = 1;
+const PARALLAX_INTENSITY = 1.0;
+const NUM_LAYERS = 15;
 
 let uploadedImages = [];
 
 const state = {
   currentSlide: 0, isPlaying: true,
-  breathTime: 0, lastRenderTime: 0, pauseTime: 0, isLoadingNext: false,
+  lastRenderTime: 0, pauseTime: 0, isLoadingNext: false,
   nextSlideData: null
 };
 
@@ -135,44 +130,7 @@ const dom = {
   menuBtn: document.getElementById('menuBtn')
 };
 
-const engine = { ctx: dom.canvas.getContext('2d'), isFlat: false, layers: [], underplate: null, active: false, drawW: 0, drawH: 0, startTime: 0, anchorX: 0, anchorY: 0, sizeZoom: 1.0, baseMaxZoom: 1.15, isZoomOut: false, camPath: null };
-
-function openDB() {
-  return new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, DB_VERSION);
-    request.onerror = () => reject(request.error);
-    request.onsuccess = () => resolve(request.result);
-    request.upgradeneeded = (event) => {
-      const db = event.target.result;
-      if (!db.objectStoreNames.contains(STORE_NAME)) {
-        db.createObjectStore(STORE_NAME, { keyPath: 'id', autoIncrement: true });
-      }
-    };
-  });
-}
-
-async function saveToDB(fileEntries) {
-  const db = await openDB();
-  return new Promise((resolve, reject) => {
-    const transaction = db.transaction(STORE_NAME, 'readwrite');
-    const store = transaction.objectStore(STORE_NAME);
-    store.clear(); // Replace existing set
-    fileEntries.forEach(entry => store.add(entry));
-    transaction.oncomplete = () => resolve();
-    transaction.onerror = () => reject(transaction.error);
-  });
-}
-
-async function loadFromDB() {
-  const db = await openDB();
-  return new Promise((resolve, reject) => {
-    const transaction = db.transaction(STORE_NAME, 'readonly');
-    const store = transaction.objectStore(STORE_NAME);
-    const request = store.getAll();
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
-  });
-}
+const engine = { ctx: dom.canvas.getContext('2d'), isFlat: false, layers: [], underplate: null, active: false, drawW: 0, drawH: 0, startTime: 0, baseMaxZoom: 1.1, camPath: null };
 
 function resizeCanvas() { dom.canvas.width = window.innerWidth; dom.canvas.height = window.innerHeight; }
 window.addEventListener('resize', resizeCanvas);
@@ -218,25 +176,12 @@ dom.fileUploader.addEventListener('change', async (event) => {
     }
   }
 
-  let dbEntries = [];
   uploadedImages = [];
   for (let coreName in fileMap) {
     const entry = fileMap[coreName];
-    dbEntries.push({
-      baseBlob: entry.base ? entry.base.blob : null,
-      depthBlob: entry.depth ? entry.depth.blob : null,
-      baseName: entry.base ? entry.base.name : (entry.depth ? entry.depth.name : '')
-    });
-
     const baseUrl = entry.base ? URL.createObjectURL(entry.base.blob) : null;
     let depthUrl = entry.depth ? URL.createObjectURL(entry.depth.blob) : null;
     uploadedImages.push([baseUrl, depthUrl]);
-  }
-
-  try {
-    await saveToDB(dbEntries);
-  } catch (err) {
-    console.error('Error saving to DB:', err);
   }
 
   dom.statusText.textContent = `${uploadedImages.length} slides loaded`;
@@ -256,11 +201,6 @@ function loadImage(src) {
   });
 }
 
-function createScratchCanvas(w, h) {
-  const c = document.createElement('canvas'); c.width = w; c.height = h;
-  return { canvas: c, ctx: c.getContext('2d', { willReadFrequently: true }) };
-}
-
 async function buildSlideData(baseSrc, depthSrc) {
   await new Promise(res => requestAnimationFrame(res)); 
   const w = window.innerWidth; const h = window.innerHeight;
@@ -271,19 +211,14 @@ async function buildSlideData(baseSrc, depthSrc) {
   let scale = fitScale * 1.05; 
   const drawW = imgW * scale; const drawH = imgH * scale;
 
-  const anchorX = w * (0.1 + 0.8 * Math.random()); const anchorY = h * (0.1 + 0.8 * Math.random());
-  const isZoomOut = Math.random() < 0.25;
-
   const camPath = function(t) {
-    let easeT = Math.sin(Math.min(t, 1.0) * (Math.PI / 2));
-    let zoom = isZoomOut ? engine.baseMaxZoom - (easeT * (engine.baseMaxZoom - 1.0)) : 1.0 + (easeT * (engine.baseMaxZoom - 1.0));
-    let moveX = -(anchorX - (window.innerWidth / 2)) * (zoom - 1.0); 
-    let moveY = -(anchorY - (window.innerHeight / 2)) * (zoom - 1.0);
-    return { x: moveX, y: moveY, z: zoom };
+    let easeT = Math.min(Math.max(t, 0), 1.0);
+    let zoom = 1.0 + (easeT * (engine.baseMaxZoom - 1.0));
+    return { x: 0, y: 0, z: zoom };
   };
 
   if (!depthSrc) {
-    return { isFlat: true, baseSrc, layers: [], drawW, drawH, anchorX, anchorY, isZoomOut, camPath };
+    return { isFlat: true, baseSrc, layers: [], drawW, drawH, camPath };
   }
 
   const depthImg = await loadImage(depthSrc);
@@ -309,7 +244,6 @@ async function buildSlideData(baseSrc, depthSrc) {
   const bCtx = bCanvas.getContext('2d', { willReadFrequently: true }); bCtx.drawImage(baseImg, 0, 0, imgW, imgH);
   const bData = bCtx.getImageData(0, 0, imgW, imgH).data;
 
-  const layerCanvases = [];
   const layerDataArrays = Array.from({ length: NUM_LAYERS }, () => new Uint8ClampedArray(imgW * imgH * 4));
 
   for (let idx = 0; idx < dData.length; idx += 4) {
@@ -332,59 +266,16 @@ async function buildSlideData(baseSrc, depthSrc) {
   for (let i = 0; i < NUM_LAYERS; i++) {
     const lc = document.createElement('canvas'); lc.width = imgW; lc.height = imgH;
     lc.getContext('2d').putImageData(new ImageData(layerDataArrays[i], imgW, imgH), 0, 0);
-    layerCanvases.push(lc);
     slideLayers.push({ canvas: lc, depth: i / (NUM_LAYERS - 1) });
   }
 
-  const scratchCrisp = createScratchCanvas(imgW, imgH);
-  const scratchSmear = createScratchCanvas(imgW, imgH);
-
-  for (let L = NUM_LAYERS-1; L >=0; L--) {
-    await new Promise(res => requestAnimationFrame(res)); 
-
-    scratchCrisp.ctx.clearRect(0, 0, imgW, imgH);
-    scratchCrisp.ctx.filter = 'blur(2px)';
-    scratchCrisp.ctx.drawImage(layerCanvases[L], 0, 0);
-    scratchCrisp.ctx.filter = 'none'; 
-    scratchCrisp.ctx.globalCompositeOperation = 'source-in';
-    scratchCrisp.ctx.drawImage(baseImg, 0, 0);
-    scratchCrisp.ctx.globalCompositeOperation = 'source-over';
-
-    await new Promise(res => requestAnimationFrame(res)); 
-
-    const scratchTiny = createScratchCanvas(Math.ceil(imgW * 0.05), Math.ceil(imgH * 0.05));
-    scratchTiny.ctx.drawImage(scratchCrisp.canvas, 0, 0, scratchTiny.canvas.width, scratchTiny.canvas.height);
-    scratchTiny.ctx.filter = 'blur(1px)';
-    for(let k=0; k<4; k++) scratchTiny.ctx.drawImage(scratchTiny.canvas, 0, 0);
-    scratchTiny.ctx.filter = 'none';
-
-    scratchSmear.ctx.clearRect(0, 0, imgW, imgH);
-    scratchSmear.ctx.drawImage(scratchTiny.canvas, 0, 0, imgW, imgH);
-
-    const scratchHigherMask = createScratchCanvas(imgW, imgH);
-    for (let j = L + 1; j < NUM_LAYERS; j++) scratchHigherMask.ctx.drawImage(layerCanvases[j], 0, 0);
-    
-    scratchSmear.ctx.globalCompositeOperation = 'destination-in';
-    scratchSmear.ctx.drawImage(scratchHigherMask.canvas, 0, 0);
-    scratchSmear.ctx.globalCompositeOperation = 'source-over';
-
-    const finalLayerCanvas = document.createElement('canvas');
-    finalLayerCanvas.width = imgW; finalLayerCanvas.height = imgH;
-    const finalCtx = finalLayerCanvas.getContext('2d');
-    finalCtx.drawImage(scratchSmear.canvas, 0, 0);
-    finalCtx.drawImage(scratchCrisp.canvas, 0, 0);
-
-    slideLayers[L].canvas = finalLayerCanvas;
-  }
-
-  return { isFlat: false, underplate, layers: slideLayers, drawW, drawH, anchorX, anchorY, isZoomOut, camPath };
+  return { isFlat: false, underplate, layers: slideLayers, drawW, drawH, camPath };
 }
 
 function renderLoop() {
   let now = performance.now();
   let dt = now - (state.lastRenderTime || now);
   state.lastRenderTime = now;
-  state.breathTime += dt;
   let camTime = state.isPlaying ? now : (state.pauseTime || now);
 
   if (!engine.active || (!engine.isFlat && engine.layers.length === 0)) {
@@ -404,9 +295,6 @@ function renderLoop() {
   let cam = engine.camPath(elapsedSlide);
   let cx = window.innerWidth / 2; let cy = window.innerHeight / 2;
 
-  let breatheOffset = BREATHE_INTENSITY * Math.sin(state.breathTime / 1500);
-  let breatheOffsetX = BREATHE_INTENSITY * Math.cos(state.breathTime / 2000);
-
   engine.ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
 
   if (engine.isFlat) {
@@ -419,11 +307,8 @@ function renderLoop() {
 
     let layerZoom = cam.z;
     let rawW = engine.drawW * layerZoom; let rawH = engine.drawH * layerZoom;
-    let pX = cam.x + breatheOffsetX;
-    let pY = cam.y + breatheOffset;
-    
-    let drawX = cx + pX - rawW / 2;
-    let drawY = cy + pY - rawH / 2;
+    let drawX = cx - rawW / 2;
+    let drawY = cy - rawH / 2;
 
     dom.animatedImg.style.width = `${rawW}px`;
     dom.animatedImg.style.height = `${rawH}px`;
@@ -433,15 +318,11 @@ function renderLoop() {
     if (engine.underplate) engine.ctx.drawImage(engine.underplate, 0, 0, window.innerWidth, window.innerHeight);
 
     engine.layers.forEach(layer => {
-      const layerDepthFactor = layer.depth * PARALLAX_INTENSITY * 0.5;
+      const layerDepthFactor = layer.depth * PARALLAX_INTENSITY * 0.3;
       let layerZoom = (cam.z + (cam.z - 1.0) * layerDepthFactor);
       let rawW = engine.drawW * layerZoom; let rawH = engine.drawH * layerZoom;
-      
-      let pX = cam.x * (1.0 + layerDepthFactor) + (breatheOffsetX * layerDepthFactor);
-      let pY = cam.y * (1.0 + layerDepthFactor) + (breatheOffset * layerDepthFactor);
-      
-      let drawX = cx + pX + (0.66 * breatheOffsetX);
-      let drawY = cy + pY + (0.66 * breatheOffset);
+      let drawX = cx;
+      let drawY = cy;
       
       engine.ctx.drawImage(layer.canvas, drawX - rawW / 2, drawY - rawH / 2, rawW, rawH);
     });
@@ -533,29 +414,7 @@ dom.menuBtn.addEventListener('click', (e) => {
   dom.startOverlay.style.display = 'flex';
 });
 
-// Auto-start on load if images exist in storage
-window.addEventListener('DOMContentLoaded', async () => {
-  try {
-    const records = await loadFromDB();
-    if (records && records.length > 0) {
-      uploadedImages = records.map(record => {
-        const baseUrl = record.baseBlob ? URL.createObjectURL(record.baseBlob) : null;
-        const depthUrl = record.depthBlob ? URL.createObjectURL(record.depthBlob) : null;
-        return [baseUrl, depthUrl];
-      });
-
-      if (uploadedImages.length > 0) {
-        dom.startOverlay.style.display = 'none';
-        resizeCanvas();
-        state.lastRenderTime = performance.now();
-        requestAnimationFrame(renderLoop);
-        showSlide(0);
-        return;
-      }
-    }
-  } catch (err) {
-    console.error('Error loading stored images:', err);
-  }
+window.addEventListener('DOMContentLoaded', () => {
   dom.statusText.textContent = '0 images loaded';
   dom.generateBtn.disabled = true;
 });
